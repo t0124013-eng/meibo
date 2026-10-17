@@ -1,0 +1,703 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>説明会 名簿同期ツール</title>
+<meta name="description" content="説明会の予約者名簿Excelを申込データと突合し、キャンセル移動・新規追加・新規フラグ入力・フリガナ順シート作成をブラウザ内だけで行うツール">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=Zen+Kaku+Gothic+New:wght@700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+<style>
+:root{
+  --bg:#f5f3ee; --paper:#fffdf8; --ink:#1f2328; --sub:#5c6168; --line:#dcd7cc;
+  --accent:#1d5c4d; --accent-soft:#e3efe9; --warn:#a4551a; --warn-soft:#fbeee2;
+  --bad:#b3261e; --bad-soft:#fbe5e3; --ok:#1d6b3f; --ok-soft:#e2f2e7; --chip:#ece8de;
+  --shadow:0 1px 2px rgba(0,0,0,.04),0 4px 16px rgba(0,0,0,.05);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#16181b; --paper:#1e2124; --ink:#e8e6e1; --sub:#a3a7ad; --line:#34383d;
+    --accent:#6fc2a8; --accent-soft:#1f3530; --warn:#e7a26a; --warn-soft:#3a2a1d;
+    --bad:#f08a80; --bad-soft:#3d2321; --ok:#7bd19c; --ok-soft:#1d3426; --chip:#2a2d31;
+    --shadow:none;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#16181b; --paper:#1e2124; --ink:#e8e6e1; --sub:#a3a7ad; --line:#34383d;
+  --accent:#6fc2a8; --accent-soft:#1f3530; --warn:#e7a26a; --warn-soft:#3a2a1d;
+  --bad:#f08a80; --bad-soft:#3d2321; --ok:#7bd19c; --ok-soft:#1d3426; --chip:#2a2d31;
+  --shadow:none;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"Noto Sans JP",system-ui,sans-serif;font-size:15px;line-height:1.7}
+main{max-width:920px;margin:0 auto;padding:40px 16px 80px}
+header h1{font-family:"Zen Kaku Gothic New","Noto Sans JP",sans-serif;font-size:clamp(24px,4vw,32px);margin:0 0 6px;letter-spacing:.02em}
+header p{margin:0;color:var(--sub)}
+.privacy{display:inline-flex;gap:8px;align-items:center;margin-top:14px;padding:6px 12px;border-radius:999px;background:var(--accent-soft);color:var(--accent);font-size:13px;font-weight:500}
+section.card{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:22px 22px;margin-top:22px;box-shadow:var(--shadow)}
+.step{display:flex;gap:12px;align-items:baseline;margin:0 0 12px}
+.step b{flex:none;width:26px;height:26px;border-radius:50%;background:var(--accent);color:var(--paper);display:grid;place-items:center;font-size:13px}
+.step h2{margin:0;font-size:18px}
+.drop{display:block;border:2px dashed var(--line);border-radius:12px;padding:28px 16px;text-align:center;color:var(--sub);cursor:pointer;transition:.15s}
+.drop:hover,.drop.over{border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}
+.drop strong{display:block;color:var(--ink);font-size:16px;margin-bottom:4px}
+.drop.over strong{color:var(--accent)}
+input[type=file]{display:none}
+.files{display:grid;gap:10px;margin-top:16px}
+.file{display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center;padding:12px 14px;border:1px solid var(--line);border-radius:10px}
+.role{font-size:12px;font-weight:700;padding:3px 10px;border-radius:999px;background:var(--chip);white-space:nowrap}
+.role.main{background:var(--accent);color:var(--paper)}
+.role.src{background:var(--accent-soft);color:var(--accent)}
+.role.master{background:var(--warn-soft);color:var(--warn)}
+.role.unknown{background:var(--bad-soft);color:var(--bad)}
+.fname{font-weight:500;word-break:break-all}
+.fmeta{font-size:13px;color:var(--sub)}
+.file select{font:inherit;padding:4px 8px;border-radius:8px;border:1px solid var(--line);background:var(--paper);color:var(--ink)}
+.x{border:0;background:none;color:var(--sub);cursor:pointer;font-size:18px;padding:0 4px}
+.opts label{display:flex;gap:10px;align-items:flex-start;padding:6px 0;cursor:pointer}
+.opts input{margin-top:6px;accent-color:var(--accent)}
+.opts small{display:block;color:var(--sub)}
+.run{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-top:22px}
+button.primary{font:inherit;font-weight:700;font-size:16px;padding:12px 28px;border-radius:10px;border:0;background:var(--accent);color:var(--paper);cursor:pointer}
+a.btnlink{display:inline-block;font-weight:700;font-size:16px;padding:12px 28px;border-radius:10px;background:var(--accent);color:var(--paper);text-decoration:none}
+button.primary:disabled{opacity:.4;cursor:not-allowed}
+.hint{color:var(--sub);font-size:13px}
+.msg{margin-top:12px;padding:10px 14px;border-radius:10px;font-size:14px}
+.msg.err{background:var(--bad-soft);color:var(--bad)}
+.msg.warn{background:var(--warn-soft);color:var(--warn)}
+.summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin-top:6px}
+.sheet{border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.sheet h3{margin:0 0 8px;font-size:16px}
+.nums{display:flex;gap:18px;flex-wrap:wrap}
+.nums div{font-size:13px;color:var(--sub)}
+.nums span{display:block;font-size:24px;font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums;line-height:1.2}
+details{margin-top:10px;font-size:14px}
+details summary{cursor:pointer;color:var(--accent);font-weight:500}
+table{width:100%;border-collapse:collapse;margin-top:6px;font-size:13px}
+th,td{text-align:left;padding:4px 6px;border-bottom:1px solid var(--line)}
+th{color:var(--sub);font-weight:500}
+.checks{list-style:none;padding:0;margin:12px 0 0;display:grid;gap:6px}
+.checks li{padding:6px 12px;border-radius:8px;font-size:14px}
+.checks li.ok{background:var(--ok-soft);color:var(--ok)}
+.checks li.ng{background:var(--bad-soft);color:var(--bad)}
+.checks li.info{background:var(--warn-soft);color:var(--warn)}
+.dl{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:18px}
+footer{margin-top:40px;color:var(--sub);font-size:13px}
+footer details{font-size:13px}
+footer ul{padding-left:20px;margin:6px 0}
+@media (max-width:560px){
+  .file{grid-template-columns:1fr auto}
+  .file .role{grid-column:1/-1;justify-self:start}
+  section.card{padding:18px 16px}
+}
+</style>
+</head>
+<body>
+<main>
+<header>
+  <h1>説明会 名簿同期ツール</h1>
+  <p>予約者名簿Excelを申込データと突き合わせて、キャンセル・新規追加・新規フラグ・フリガナ順シートをまとめて更新します。</p>
+  <div class="privacy">🔒 ファイルはこのブラウザの中だけで処理され、どこにも送信されません</div>
+</header>
+
+<section class="card">
+  <div class="step"><b>1</b><h2>Excelファイルを入れる</h2></div>
+  <label class="drop" id="drop">
+    <strong>ここにExcelをまとめてドロップ</strong>
+    またはクリックして選択（名簿・申込データ・参加者マスタ）
+    <input type="file" id="fileInput" accept=".xlsx" multiple>
+  </label>
+  <div class="files" id="files"></div>
+  <div id="fileMsg"></div>
+</section>
+
+<section class="card opts">
+  <div class="step"><b>2</b><h2>作成するシート</h2></div>
+  <label><input type="checkbox" id="optSorted" checked><span>フリガナ順シート<small>各シートをコピーして50音順に並べ替え（濁点・半濁点は無視、同じ読みは 清音→濁点→半濁点）</small></span></label>
+  <label><input type="checkbox" id="optFinal" checked><span>名簿完成形の形式のシート<small>フリガナ順を「名簿完成形」シートと同じ表示形式（50音見出し・出欠列つき）に整えたもの</small></span></label>
+</section>
+
+<section class="card">
+  <div class="step"><b>3</b><h2>実行</h2></div>
+  <div class="run">
+    <button class="primary" id="runBtn" disabled>名簿を更新する</button>
+    <span class="hint" id="runHint">名簿ファイルと申込データを入れてください</span>
+  </div>
+  <div id="result"></div>
+</section>
+
+<footer>
+  <details>
+    <summary>このツールが行う処理</summary>
+    <ul>
+      <li>名簿の各シート（AM・PM・個別のみ など）と、対応する申込データ（Sheet0）を「氏名＋ふりがな」で照合します。</li>
+      <li>名簿にいて申込データにいない人は「キャンセル」シートの末尾へ移し、元のシートから削除して詰めます。</li>
+      <li>申込データにいて名簿にいない人は、申込が早い順に空欄の予約行（№のみの行）へ追加し、足りなければ末尾に№を続けて追加します。</li>
+      <li>追加した人のうち、参加者マスタに同じ氏名がない人だけ「新規」欄に 1 を入れます。</li>
+      <li>合計行（=SUM(B4:B…)）と右側の集計式の参照範囲を、行数の増減に合わせて直します。</li>
+      <li>「その他」「通塾なし」の塾は、塾コードを空欄にして自由記入欄の内容を入れます。</li>
+    </ul>
+  </details>
+</footer>
+</main>
+
+<script>
+'use strict';
+/* ================= utilities ================= */
+const $ = s => document.querySelector(s);
+const clone = o => o == null ? o : JSON.parse(JSON.stringify(o));
+const norm = s => s == null ? '' : String(s).trim().replace(/[\s　]+/g, '　');
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const colLetter = n => { let s=''; while(n>0){ const m=(n-1)%26; s=String.fromCharCode(65+m)+s; n=Math.floor((n-1)/26);} return s; };
+
+function val(cell){
+  const v = cell.value;
+  if (v == null) return null;
+  if (typeof v === 'object' && !(v instanceof Date)) {
+    if (v.richText) return v.richText.map(t => t.text).join('');
+    if ('formula' in v || 'sharedFormula' in v) return v.result ?? null;
+    if ('text' in v) return v.text;
+    if ('error' in v) return null;
+  }
+  return v;
+}
+const isFormula = cell => cell.value && typeof cell.value === 'object' && ('formula' in cell.value || 'sharedFormula' in cell.value);
+const formulaOf = cell => isFormula(cell) ? (cell.formula || cell.value.formula || '') : '';
+
+/* ================= workbook classification ================= */
+const SRC_HEADERS = { sei:'氏名(漢字)（姓）', mei:'氏名(漢字)（名）', ksei:'氏名(カナ)（姓）', kmei:'氏名(カナ)（名）' };
+const hkey = s => String(s ?? '').replace(/[\s　]/g, '');
+
+function headerMapOf(ws, row){
+  const map = {};
+  ws.getRow(row).eachCell({includeEmpty:false}, (c, i) => { const k = hkey(val(c)); if (k && !(k in map)) map[k] = i; });
+  return map;
+}
+
+function classify(wb){
+  const names = wb.worksheets.map(w => w.name);
+  if (names.some(n => n.includes('キャンセル'))) return 'main';
+  const m = wb.worksheets.find(w => w.name.includes('参加者マスタ'));
+  if (m) return 'master';
+  for (const ws of wb.worksheets){
+    const h = headerMapOf(ws, 1);
+    if (h[hkey(SRC_HEADERS.sei)] && h[hkey(SRC_HEADERS.ksei)]) return 'src';
+  }
+  return 'unknown';
+}
+
+/* roster sheet layout: header row containing № / 氏名 / ふりがな */
+function rosterLayout(ws){
+  for (let r = 1; r <= 6; r++){
+    const row = ws.getRow(r);
+    const heads = [];
+    let hasName=false, hasKana=false;
+    for (let c = 1; c <= 40; c++){
+      const v = val(row.getCell(c));
+      heads.push(v == null ? null : String(v).trim());
+      if (v === '氏名') hasName = true;
+      if (v === 'ふりがな') hasKana = true;
+    }
+    if (!hasName || !hasKana) continue;
+    // contiguous data columns from A (allowing one unnamed index column)
+    let ncols = 0;
+    for (let c = 0; c < heads.length; c++){
+      if (heads[c] == null){ if (c+1 < heads.length && heads[c+1] != null && c>0 && heads[c-1]==='氏名'){ ncols++; continue; } break; }
+      ncols++;
+    }
+    const headers = heads.slice(0, ncols);
+    const col = name => headers.indexOf(name) + 1;
+    // total row
+    let total = null;
+    const lim = ws.rowCount;
+    for (let rr = r + 1; rr <= lim; rr++){
+      const f = formulaOf(ws.getRow(rr).getCell(2));
+      if (/^=?SUM\(B\d+:B\d+\)$/i.test(f.replace(/\s/g,''))) { total = rr; break; }
+    }
+    return { headerRow:r, start:r+1, headers, ncols, col, total };
+  }
+  return null;
+}
+
+function rosterTargets(wb){
+  const out = [];
+  for (const ws of wb.worksheets){
+    if (/キャンセル|完成形|フリガナ順/.test(ws.name)) continue;
+    const L = rosterLayout(ws);
+    if (L && L.total && L.col('№') === 1 && L.col('新規') === 2) out.push(ws.name);
+  }
+  return out;
+}
+
+/* ================= source (registration export) ================= */
+const GRADE = {'小学６年生':6,'小学5年生':5,'小学５年生':5,'小学４年生':4,'小学4年生':4,'小学6年生':6,'小学３年生以下':'小3以下','小学3年生以下':'小3以下'};
+function toNum(v){ if (v == null || v === '') return null; const n = Number(String(v).replace(/[^\d.]/g,'')); return isNaN(n) ? v : n; }
+
+function readSource(wb){
+  const ws = wb.getWorksheet('Sheet0') || wb.worksheets[0];
+  const h = headerMapOf(ws, 1);
+  const find = (...cands) => { for (const c of cands){ const k = hkey(c); if (h[k]) return h[k]; } for (const c of cands){ const k=hkey(c); const hit = Object.keys(h).find(x => x.includes(k)); if (hit) return h[hit]; } return null; };
+  const C = {
+    done:find('申込完了日'), cancel:find('キャンセル'), event:find('イベント名'),
+    sei:find(SRC_HEADERS.sei), mei:find(SRC_HEADERS.mei), ksei:find(SRC_HEADERS.ksei), kmei:find(SRC_HEADERS.kmei),
+    sex:find('性別'), pref:find('都道府県'), city:find('市区町村'),
+    school:find('出身校名称'), schoolOther:find('出身校名称その他'),
+    jcode:find('塾コード'), jname:find('塾名称'), jother:find('塾名称その他'),
+    grade:find('学年'), ninzu:find('参加予定人数'), soudan:find('個別相談は希望されますか','個別相談')
+  };
+  if (!C.sei || !C.ksei) throw new Error('申込データの見出し（氏名(漢字)（姓）など）が見つかりません');
+  const g = (row, k) => C[k] ? val(row.getCell(C[k])) : null;
+  const s = v => v == null ? '' : String(v).trim();
+  const recs = []; let eventName = null;
+  const lim = ws.rowCount;
+  for (let r = 2; r <= lim; r++){
+    const row = ws.getRow(r);
+    const sei = g(row,'sei'), mei = g(row,'mei');
+    if (sei == null && mei == null) continue;
+    eventName = eventName || g(row,'event');
+    const cx = s(g(row,'cancel'));
+    if (cx && !cx.startsWith('0')) continue;            // cancelled in the system
+    const name = `${s(sei)}　${s(mei)}`, kana = `${s(g(row,'ksei'))}　${s(g(row,'kmei'))}`;
+    let code = s(g(row,'jcode')) || null, jn = s(g(row,'jname')) || null;
+    if (code === 'J99998' || code === 'J99999'){ jn = s(g(row,'jother')) || null; code = null; }
+    const gr = s(g(row,'grade'));
+    recs.push({
+      key: norm(name) + '|' + norm(kana), done: s(g(row,'done')),
+      f: {
+        '氏名': name, 'ふりがな': kana, '性別': g(row,'sex'),
+        '学年': gr in GRADE ? GRADE[gr] : (gr.match(/\d+/) ? Number(gr.match(/\d+/)[0]) : gr || null),
+        '塾コード': code, '塾名/教室名': jn, '個別相談': g(row,'soudan'),
+        '都道府県': g(row,'pref'), '市区町村': g(row,'city'),
+        '在籍小学校': s(g(row,'school')) || s(g(row,'schoolOther')) || null,
+        '参加予定人数': C.ninzu ? toNum(g(row,'ninzu')) : null
+      }
+    });
+  }
+  return { recs, eventName };
+}
+
+function readMaster(wb){
+  const ws = wb.worksheets.find(w => w.name.includes('参加者マスタ')) || wb.worksheets[0];
+  const h = headerMapOf(ws, 1);
+  const names = new Set();
+  const lim = ws.rowCount;
+  for (let r = 2; r <= lim; r++){
+    const row = ws.getRow(r);
+    const c3 = val(row.getCell(3)); if (c3) names.add(norm(c3));
+    if (h['姓'] && h['名']){ const a = val(row.getCell(h['姓'])), b = val(row.getCell(h['名'])); if (a || b) names.add(norm(`${a ?? ''}　${b ?? ''}`)); }
+  }
+  names.delete('');
+  return names;
+}
+
+/* ================= furigana sort ================= */
+const SMALL = {'ァ':'ア','ィ':'イ','ゥ':'ウ','ェ':'エ','ォ':'オ','ッ':'ツ','ャ':'ヤ','ュ':'ユ','ョ':'ヨ','ヮ':'ワ','ヵ':'カ','ヶ':'ケ'};
+const VOWEL = {};
+['アカサタナハマヤラワガザダバパァャヮヵ','イキシチニヒミリギジヂビピィヰ','ウクスツヌフムユルグズヅブプゥッュヴ','エケセテネヘメレゲゼデベペェヱヶ','オコソトノホモヨロゴゾドボポォョヲ']
+  .forEach((chars, i) => { for (const ch of chars) VOWEL[ch] = 'アイウエオ'[i]; });
+function charInfo(ch){
+  let c = ch; const code = c.charCodeAt(0);
+  if (code >= 0x3041 && code <= 0x3096) c = String.fromCharCode(code + 0x60);
+  const d = c.normalize('NFD'); let mark = 0;
+  if (d.length === 2 && d[1] === '゙'){ c = d[0]; mark = 1; }
+  else if (d.length === 2 && d[1] === '゚'){ c = d[0]; mark = 2; }
+  let small = 0; if (SMALL[c]){ c = SMALL[c]; small = 1; }
+  return [c, mark, small];
+}
+function kanaKey(kana){
+  const parts = String(kana ?? '').normalize('NFKC').trim().split(/[\s　]+/);
+  const base = [], marks = [], smalls = [];
+  for (const p of parts){
+    let b = '', prev = '';
+    for (const ch of p){
+      if (ch === 'ー' || ch === '-'){ b += VOWEL[prev] || 'ー'; marks.push(0); smalls.push(0); continue; }
+      const [c, m, s] = charInfo(ch); prev = c; b += c; marks.push(m); smalls.push(s);
+    }
+    base.push(b);
+  }
+  return { base, marks, smalls };
+}
+const cmpArr = (a, b) => { for (let i = 0; i < Math.min(a.length, b.length); i++){ if (a[i] < b[i]) return -1; if (a[i] > b[i]) return 1; } return a.length - b.length; };
+const cmpStr = (a, b) => a < b ? -1 : a > b ? 1 : 0;
+function kanaCompare(a, b){
+  const A = kanaKey(a), B = kanaKey(b);
+  return cmpArr(A.base, B.base) || cmpArr(A.marks, B.marks) || cmpArr(A.smalls, B.smalls) || cmpStr(String(a), String(b));
+}
+const indexChar = kana => { const s = String(kana ?? '').normalize('NFKC').trim(); return s ? charInfo(s[0])[0] : ''; };
+
+/* ================= sheet operations ================= */
+function shiftFormula(f, delta, minRow){
+  return f.replace(/(\$?[A-Z]{1,3}\$?)(\d+)(?![\d(])/g, (m, a, n) => {
+    const k = Number(n);
+    return (k > minRow && k !== 1048576) ? a + (k + delta) : m;
+  });
+}
+function shiftFilter(ref, delta){
+  if (!ref) return ref;
+  const s = typeof ref === 'string' ? ref : `${ref.from}:${ref.to}`;
+  return s.replace(/([A-Z]+)(\d+)$/, (m, c, n) => c + (Number(n) + delta));
+}
+
+function syncSheet(wb, sheetName, src, master){
+  const ws = wb.getWorksheet(sheetName);
+  const L = rosterLayout(ws);
+  const N = L.ncols, start = L.start, total = L.total, oldEnd = total - 1;
+  const existing = [];
+  for (let r = start; r <= oldEnd; r++){
+    const row = ws.getRow(r);
+    const raw = [], obj = {};
+    for (let c = 1; c <= N; c++){ const cell = row.getCell(c); raw.push(isFormula(cell) ? val(cell) : cell.value); obj[L.headers[c-1]] = val(cell); }
+    const name = obj['氏名'], kana = obj['ふりがな'];
+    existing.push({ key: name ? norm(name) + '|' + norm(kana) : null, raw, obj });
+  }
+  const srcByKey = new Map(src.recs.map(r => [r.key, r]));
+  const exKeys = new Set(existing.filter(e => e.key).map(e => e.key));
+  const cancelled = existing.filter(e => e.key && !srcByKey.has(e.key));
+  const adds = src.recs.filter(r => !exKeys.has(r.key)).sort((a, b) => cmpStr(a.done, b.done));
+  const makeRow = (rec, no) => {
+    const shinki = master.has(norm(rec.f['氏名'])) ? null : 1;
+    return L.headers.map(h => h === '№' ? no : h === '新規' ? shinki : (h in rec.f ? rec.f[h] : null));
+  };
+  const final = [], added = [];
+  let ai = 0;
+  for (const e of existing){
+    if (e.key){ if (srcByKey.has(e.key)) final.push(e.raw); continue; }
+    if (ai < adds.length){ const row = makeRow(adds[ai++], e.raw[0]); final.push(row); added.push(row); }
+    else final.push(e.raw);
+  }
+  if (ai < adds.length){
+    let next = Math.max(0, ...final.map(v => typeof v[0] === 'number' ? v[0] : 0)) + 1;
+    while (ai < adds.length){ const row = makeRow(adds[ai++], next++); final.push(row); added.push(row); }
+  }
+  const newEnd = start + final.length - 1, delta = newEnd - oldEnd;
+  const styleRow = r => Array.from({length:N}, (_, i) => clone(ws.getRow(r).getCell(i+1).style));
+  const dataStyle = styleRow(start), totalStyle = styleRow(total), belowStyle = styleRow(total + 1);
+  const dataHeight = ws.getRow(start).height;
+  final.forEach((v, i) => {
+    const r = start + i, row = ws.getRow(r);
+    for (let c = 1; c <= N; c++){
+      const cell = row.getCell(c); cell.value = v[c-1] ?? null;
+      if (r > oldEnd) cell.style = clone(dataStyle[c-1]);
+    }
+    if (r > oldEnd && dataHeight) row.height = dataHeight;
+  });
+  for (let r = newEnd + 1; r <= Math.max(total, newEnd + 1); r++){
+    const row = ws.getRow(r);
+    for (let c = 1; c <= N; c++){ const cell = row.getCell(c); cell.value = null; cell.style = clone(belowStyle[c-1]); }
+  }
+  const newTotal = newEnd + 1;
+  for (let c = 1; c <= N; c++) ws.getRow(newTotal).getCell(c).style = clone(totalStyle[c-1]);
+  ws.getRow(newTotal).getCell(2).value = { formula: `SUM(B${start}:B${newEnd})` };
+  // side summary formulas (outside the data columns, top rows)
+  for (let r = 1; r <= 15; r++){
+    const row = ws.getRow(r);
+    for (let c = N + 1; c <= N + 20; c++){
+      const cell = row.getCell(c);
+      if (isFormula(cell)){ const f = formulaOf(cell); cell.value = { formula: shiftFormula(f, delta, start + 8) }; }
+    }
+  }
+  if (ws.autoFilter) ws.autoFilter = shiftFilter(ws.autoFilter, delta);
+  return { sheet: sheetName, layout: L, cancelled, added, newEnd, newTotal, delta, srcCount: src.recs.length };
+}
+
+function appendCancels(wb, results){
+  const ws = wb.worksheets.find(w => w.name.includes('キャンセル'));
+  const rows = results.flatMap(r => r.cancelled.map(e => e.obj));
+  if (!ws) return { count: rows.length, missing: true };
+  const L = rosterLayout(ws);
+  let last = L.headerRow; const lim = ws.rowCount;
+  for (let r = L.start; r <= lim; r++){ const row = ws.getRow(r); if (val(row.getCell(1)) != null || val(row.getCell(3)) != null) last = r; }
+  const N = L.ncols, tplRow = last > L.headerRow ? last : L.start;
+  const tpl = Array.from({length:N}, (_, i) => clone(ws.getRow(tplRow).getCell(i+1).style));
+  let r = last + 1;
+  for (const o of rows){
+    const row = ws.getRow(r);
+    L.headers.forEach((h, i) => { const cell = row.getCell(i+1); cell.value = (h && h in o) ? (o[h] ?? null) : null; cell.style = clone(tpl[i]); });
+    r++;
+  }
+  if (ws.autoFilter){ const s = typeof ws.autoFilter === 'string' ? ws.autoFilter : `${ws.autoFilter.from}:${ws.autoFilter.to}`; ws.autoFilter = s.replace(/([A-Z]+)(\d+)$/, (m, c) => c + (r - 1)); }
+  return { count: rows.length, sheet: ws.name, lastRow: r - 1 };
+}
+
+function addSheetLike(wb, name, src, overrides = {}){
+  const old = wb.getWorksheet(name); if (old) wb.removeWorksheet(old.id);
+  const views = (src.views || []).map(v => ({ state: 'normal', zoomScale: v.zoomScale || 100, showGridLines: v.showGridLines !== false }));
+  return wb.addWorksheet(name, { properties: clone(src.properties), pageSetup: clone(src.pageSetup), headerFooter: clone(src.headerFooter), views: views.length ? views : undefined, ...overrides });
+}
+
+function copySheet(wb, src, name){
+  const ws = addSheetLike(wb, name, src);
+  const maxCol = Math.max(src.columnCount, (src.columns || []).length, 26);
+  for (let c = 1; c <= maxCol; c++){ const sc = src.getColumn(c), dc = ws.getColumn(c); if (sc.width) dc.width = sc.width; if (sc.hidden) dc.hidden = true; }
+  src.eachRow({ includeEmpty: true }, (row, r) => {
+    const dr = ws.getRow(r); if (row.height) dr.height = row.height;
+    row.eachCell({ includeEmpty: true }, (cell, c) => {
+      const d = dr.getCell(c);
+      if (cell.isMerged && cell.master.address !== cell.address) { d.style = clone(cell.style); return; }
+      d.value = isFormula(cell) ? { formula: formulaOf(cell) } : (cell.value instanceof Date ? new Date(cell.value) : clone(cell.value));
+      d.style = clone(cell.style);
+    });
+  });
+  (src.model.merges || []).forEach(m => ws.mergeCells(m));
+  if (src.autoFilter) ws.autoFilter = clone(src.autoFilter);
+  return ws;
+}
+
+function sortedRows(ws, res){
+  const L = res.layout, rows = [];
+  for (let r = L.start; r <= res.newEnd; r++){
+    const row = ws.getRow(r); const raw = [];
+    for (let c = 1; c <= L.ncols; c++){ const cell = row.getCell(c); raw.push(isFormula(cell) ? val(cell) : cell.value); }
+    rows.push(raw);
+  }
+  const ki = L.col('ふりがな') - 1, ni = L.col('氏名') - 1;
+  const filled = rows.filter(v => val({value:v[ni]})), blank = rows.filter(v => !val({value:v[ni]}));
+  filled.sort((a, b) => kanaCompare(val({value:a[ki]}), val({value:b[ki]})) || cmpStr(String(val({value:a[ni]})), String(val({value:b[ni]}))) || ((a[0]||0) - (b[0]||0)));
+  return { filled, blank };
+}
+
+function makeSortedSheet(wb, res){
+  const src = wb.getWorksheet(res.sheet);
+  const ws = copySheet(wb, src, res.sheet + 'フリガナ順');
+  const { filled, blank } = sortedRows(src, res);
+  [...filled, ...blank].forEach((v, i) => { const row = ws.getRow(res.layout.start + i); v.forEach((x, c) => row.getCell(c + 1).value = x ?? null); });
+  return { ws, filled };
+}
+
+function makeFinalSheet(wb, res, filled){
+  const tpl = wb.getWorksheet('名簿完成形') || wb.worksheets.find(w => w.name.includes('完成形') && !/フリガナ順/.test(w.name) && !w.name.endsWith(res.sheet + '完成形'));
+  if (!tpl) return null;
+  const TL = rosterLayout(tpl); if (!TL) return null;
+  const S = res.layout;
+  // build column spec from template headers
+  const spec = [];
+  for (let c = 1; c <= TL.ncols; c++){
+    const h = TL.headers[c-1];
+    if (h == null) spec.push({ h: null, kind: 'idx', tc: c });
+    else if (h === '出欠') spec.push({ h, kind: 'blank', tc: c });
+    else if (S.col(h) > 0) spec.push({ h, kind: 'data', si: S.col(h) - 1, tc: c });
+  }
+  const ws = addSheetLike(wb, res.sheet + '完成形', tpl);
+  const tRow = TL.headerRow, tData = TL.start;
+  let tTotal = TL.total;
+  spec.forEach((s, j) => {
+    ws.getColumn(j + 1).width = tpl.getColumn(s.tc).width || 9;
+    const hc = ws.getRow(tRow).getCell(j + 1); hc.value = s.h; hc.style = clone(tpl.getRow(tRow).getCell(s.tc).style);
+  });
+  for (let r = 1; r < tRow; r++){ const h = tpl.getRow(r).height; if (h) ws.getRow(r).height = h; spec.forEach((s, j) => ws.getRow(r).getCell(j+1).style = clone(tpl.getRow(r).getCell(s.tc).style)); }
+  if (tpl.getRow(tRow).height) ws.getRow(tRow).height = tpl.getRow(tRow).height;
+  const srcWs = wb.getWorksheet(res.sheet);
+  const title = val(srcWs.getRow(S.headerRow - 1).getCell(1)) || val(tpl.getRow(1).getCell(1));
+  ws.getRow(1).getCell(1).value = title;
+  if (spec.length > 1) ws.mergeCells(1, 1, 1, spec.length);
+  const dh = tpl.getRow(tData).height;
+  const thin = { style: 'thin' };
+  const groups = [];
+  filled.forEach((v, i) => {
+    const r = tData + i, row = ws.getRow(r);
+    if (dh) row.height = dh;
+    spec.forEach((s, j) => {
+      const cell = row.getCell(j + 1);
+      cell.style = clone(tpl.getRow(tData).getCell(s.tc).style);
+      if (s.kind === 'idx'){ cell.border = { top: thin, left: thin, bottom: thin, right: thin }; cell.alignment = { horizontal: 'center', vertical: 'middle' }; }
+      else if (s.kind === 'data') cell.value = v[s.si] ?? null;
+    });
+    const ic = indexChar(val({ value: v[S.col('ふりがな') - 1] }));
+    if (!groups.length || groups[groups.length - 1].ch !== ic) groups.push({ ch: ic, a: r, b: r }); else groups[groups.length - 1].b = r;
+  });
+  const idxCol = spec.findIndex(s => s.kind === 'idx') + 1;
+  if (idxCol > 0) groups.forEach(g => { ws.getRow(g.a).getCell(idxCol).value = g.ch; if (g.b > g.a) ws.mergeCells(g.a, idxCol, g.b, idxCol); });
+  const last = tData + filled.length - 1, tot = last + 1;
+  spec.forEach((s, j) => { if (tTotal) ws.getRow(tot).getCell(j + 1).style = clone(tpl.getRow(tTotal).getCell(s.tc).style); });
+  ws.getRow(tot).getCell(2).value = { formula: `SUM(B${tData}:B${last})` };
+  ws.autoFilter = `A${tRow}:${colLetter(spec.length)}${tot}`;
+  return ws;
+}
+
+/* ================= verification ================= */
+function verify(wb, results, master, cancelInfo){
+  const checks = [];
+  for (const res of results){
+    const ws = wb.getWorksheet(res.sheet), L = res.layout;
+    const keys = []; const mism = [];
+    for (let r = L.start; r <= res.newEnd; r++){
+      const row = ws.getRow(r); const n = val(row.getCell(L.col('氏名')));
+      if (!n) continue;
+      keys.push(norm(n) + '|' + norm(val(row.getCell(L.col('ふりがな')))));
+      const exp = master.has(norm(n)) ? null : 1, act = val(row.getCell(2)) == 1 ? 1 : null;
+      if (exp !== act) mism.push({ r, n, act });
+    }
+    const srcKeys = new Set(res.srcKeys);
+    const same = keys.length === srcKeys.size && keys.every(k => srcKeys.has(k)) && new Set(keys).size === keys.length;
+    checks.push({ ok: same, text: `${res.sheet}：名簿の ${keys.length}名 と申込データの ${srcKeys.size}名 が${same ? '完全に一致' : '一致しません'}` });
+    const addMism = mism.filter(m => res.added.some(a => norm(a[L.col('氏名')-1]) === norm(m.n)));
+    const oldMism = mism.filter(m => !addMism.includes(m));
+    checks.push({ ok: addMism.length === 0, text: `${res.sheet}：追加した人の新規欄は参加者マスタと${addMism.length ? '食い違いあり' : '一致'}` });
+    if (oldMism.length) checks.push({ info: true, text: `${res.sheet}：既存の行で新規欄が参加者マスタと合わない人が ${oldMism.length}名（変更していません）：` + oldMism.slice(0, 8).map(m => `${m.r}行目 ${m.n}`).join('、') + (oldMism.length > 8 ? ' ほか' : '') });
+  }
+  const totalCancel = results.reduce((s, r) => s + r.cancelled.length, 0);
+  if (cancelInfo.missing) checks.push({ ok: totalCancel === 0, text: totalCancel ? 'キャンセルシートが見つからないため、キャンセル者を移せませんでした' : 'キャンセル者なし' });
+  else checks.push({ ok: cancelInfo.count === totalCancel, text: `「${cancelInfo.sheet}」シートへの追記 ${cancelInfo.count}名 = キャンセル合計 ${totalCancel}名` });
+  return checks;
+}
+
+/* ================= state & UI ================= */
+const state = { files: [] };   // {id, file, kind, wb, info, target}
+let uid = 0;
+
+$('#fileInput').addEventListener('change', e => { addFiles([...e.target.files]); e.target.value = ''; });
+const drop = $('#drop');
+['dragenter','dragover'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add('over'); }));
+['dragleave','drop'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.remove('over'); }));
+drop.addEventListener('drop', e => addFiles([...e.dataTransfer.files].filter(f => /\.xlsx$/i.test(f.name))));
+
+async function addFiles(list){
+  $('#fileMsg').innerHTML = '';
+  for (const file of list){
+    const item = { id: ++uid, file, kind: 'loading' };
+    state.files.push(item); render();
+    try{
+      const wb = new ExcelJS.Workbook();
+      await wb.xlsx.load(await file.arrayBuffer());
+      item.wb = wb; item.kind = classify(wb);
+      if (item.kind === 'main'){
+        state.files.filter(f => f !== item && f.kind === 'main').forEach(f => removeFile(f.id, true));
+        item.targets = rosterTargets(wb);
+        item.info = `対象シート：${item.targets.join('・') || 'なし'}${wb.getWorksheet('名簿完成形') ? '／名簿完成形あり' : ''}`;
+      } else if (item.kind === 'src'){
+        item.src = readSource(wb);
+        item.info = `${item.src.recs.length}件` + (item.src.eventName ? `／${item.src.eventName}` : '');
+      } else if (item.kind === 'master'){
+        state.files.filter(f => f !== item && f.kind === 'master').forEach(f => removeFile(f.id, true));
+        item.master = readMaster(wb);
+        item.info = `${item.master.size}名`;
+      } else item.info = 'どの役割のファイルか判別できませんでした';
+    } catch(err){ item.kind = 'unknown'; item.info = '読み込めませんでした：' + err.message; }
+    autoAssign(); render();
+  }
+}
+function removeFile(id, silent){ state.files = state.files.filter(f => f.id !== id); if (!silent){ autoAssign(); render(); } }
+
+function autoAssign(){
+  const main = state.files.find(f => f.kind === 'main'); if (!main) return;
+  const targets = main.targets; const srcs = state.files.filter(f => f.kind === 'src');
+  const used = new Set();
+  srcs.forEach(s => { if (s.target && targets.includes(s.target)) used.add(s.target); else s.target = null; });
+  const score = (s, t) => {
+    let sc = 0; const fn = s.file.name.normalize('NFKC'), ev = (s.src.eventName || '').normalize('NFKC');
+    if (fn.includes(t)) sc += 10;
+    if (/個別/.test(t) && /個別/.test(fn + ev)) sc += 6;
+    if (!/個別/.test(t) && /個別/.test(ev)) sc -= 4;
+    if (/AM/i.test(t) && /AM|午前/i.test(fn)) sc += 4;
+    if (/PM/i.test(t) && /PM|午後/i.test(fn)) sc += 4;
+    return sc;
+  };
+  for (const s of srcs.filter(s => !s.target)){
+    const cands = targets.filter(t => !used.has(t)).map(t => [t, score(s, t)]).sort((a, b) => b[1] - a[1]);
+    if (cands.length){ s.target = cands[0][0]; used.add(s.target); }
+  }
+}
+
+const ROLE = { main:['名簿','main'], src:['申込データ','src'], master:['参加者マスタ','master'], unknown:['不明','unknown'], loading:['読込中…',''] };
+function render(){
+  const main = state.files.find(f => f.kind === 'main');
+  const rank = {main:0, src:1, master:2, unknown:3, loading:4};
+  $('#files').innerHTML = [...state.files].sort((a, b) => rank[a.kind] - rank[b.kind]).map(f => {
+    const [label, cls] = ROLE[f.kind];
+    let ctrl = '';
+    if (f.kind === 'src' && main){
+      ctrl = `<select data-id="${f.id}"><option value="">反映しない</option>${main.targets.map(t => `<option ${f.target === t ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select>`;
+    }
+    return `<div class="file"><span class="role ${cls}">${label}</span>
+      <div><div class="fname">${esc(f.file.name)}</div><div class="fmeta">${esc(f.info || '')}${f.kind === 'src' && main ? ' → 反映先シート' : ''}</div></div>
+      <div style="display:flex;gap:6px;align-items:center">${ctrl}<button class="x" title="外す" data-rm="${f.id}">×</button></div></div>`;
+  }).join('');
+  document.querySelectorAll('#files select').forEach(s => s.onchange = () => {
+    const f = state.files.find(x => x.id == s.dataset.id); f.target = s.value || null;
+    state.files.filter(x => x !== f && x.kind === 'src' && x.target === f.target && f.target).forEach(x => x.target = null);
+    render();
+  });
+  document.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => removeFile(Number(b.dataset.rm)));
+  const srcs = state.files.filter(f => f.kind === 'src' && f.target);
+  const master = state.files.find(f => f.kind === 'master');
+  const ready = main && srcs.length > 0;
+  $('#runBtn').disabled = !ready;
+  $('#runHint').textContent = !main ? '名簿ファイル（AM・キャンセル等のシートがあるExcel）を入れてください'
+    : !srcs.length ? '申込データ（Sheet0）を入れて、反映先シートを選んでください'
+    : `${srcs.map(s => s.target).join('・')} を更新します` + (master ? '' : '（参加者マスタがないため、追加者は全員「新規」扱いになります）');
+}
+
+$('#runBtn').addEventListener('click', run);
+async function run(){
+  const btn = $('#runBtn'); btn.disabled = true; btn.textContent = '処理中…';
+  $('#result').innerHTML = '';
+  try{
+    const mainItem = state.files.find(f => f.kind === 'main');
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(await mainItem.file.arrayBuffer());     // fresh copy every run
+    const masterItem = state.files.find(f => f.kind === 'master');
+    const master = masterItem ? masterItem.master : new Set();
+    const srcs = state.files.filter(f => f.kind === 'src' && f.target);
+    const order = wb.worksheets.map(w => w.name);
+    const results = [];
+    for (const name of order){
+      const s = srcs.find(x => x.target === name); if (!s) continue;
+      const res = syncSheet(wb, name, s.src, master);
+      res.srcKeys = s.src.recs.map(r => r.key);
+      results.push(res);
+    }
+    const cancelInfo = appendCancels(wb, results);
+    const newOrder = [];
+    const made = {};
+    for (const res of results){
+      made[res.sheet] = [];
+      if ($('#optSorted').checked || $('#optFinal').checked){
+        const { ws, filled } = makeSortedSheet(wb, res);
+        if ($('#optSorted').checked) made[res.sheet].push(ws.name); else wb.removeWorksheet(ws.id);
+        if ($('#optFinal').checked){ const f = makeFinalSheet(wb, res, filled); if (f) made[res.sheet].push(f.name); else res.noTemplate = true; }
+      }
+    }
+    for (const n of order){ newOrder.push(n); if (made[n]) newOrder.push(...made[n]); }
+    newOrder.forEach((n, i) => { const w = wb.getWorksheet(n); if (w) w.orderNo = i; });
+    wb.calcProperties = { ...(wb.calcProperties || {}), fullCalcOnLoad: true };
+    const checks = verify(wb, results, master, cancelInfo);
+    const buf = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const outName = mainItem.file.name.replace(/\.xlsx$/i, '') + '_更新.xlsx';
+    showResult(results, cancelInfo, checks, blob, outName, made);
+  } catch(err){
+    console.error(err);
+    $('#result').innerHTML = `<div class="msg err">処理中にエラーが起きました：${esc(err.message)}</div>`;
+  } finally { btn.textContent = '名簿を更新する'; render(); }
+}
+
+function personTable(rows, L, withNew){
+  if (!rows.length) return '<div class="hint">なし</div>';
+  const g = (v, h) => { const i = L.col(h) - 1; return i >= 0 ? esc(val({ value: v[i] }) ?? '') : ''; };
+  return `<table><tr><th>№</th>${withNew ? '<th>新規</th>' : ''}<th>氏名</th><th>ふりがな</th><th>塾名/教室名</th></tr>` +
+    rows.map(v => `<tr><td>${g(v,'№')}</td>${withNew ? `<td>${g(v,'新規')}</td>` : ''}<td>${g(v,'氏名')}</td><td>${g(v,'ふりがな')}</td><td>${g(v,'塾名/教室名')}</td></tr>`).join('') + '</table>';
+}
+
+function showResult(results, cancelInfo, checks, blob, outName, made){
+  const url = URL.createObjectURL(blob);
+  const cards = results.map(r => {
+    const L = r.layout;
+    const newCount = r.added.filter(v => v[1] === 1).length;
+    return `<div class="sheet"><h3>${esc(r.sheet)}</h3>
+      <div class="nums"><div>キャンセル<span>${r.cancelled.length}</span></div><div>追加<span>${r.added.length}</span></div><div>うち新規<span>${newCount}</span></div><div>現在<span>${r.srcCount}</span></div></div>
+      <details><summary>キャンセルした人</summary>${personTable(r.cancelled.map(e => e.raw), L, false)}</details>
+      <details><summary>追加した人</summary>${personTable(r.added, L, true)}</details>
+      ${made[r.sheet].length ? `<div class="hint" style="margin-top:8px">作成：${made[r.sheet].map(esc).join('、')}</div>` : ''}
+      ${r.noTemplate ? '<div class="msg warn">「名簿完成形」シートがないため、完成形の形式のシートは作れませんでした</div>' : ''}</div>`;
+  }).join('');
+  const ck = checks.map(c => `<li class="${c.info ? 'info' : c.ok ? 'ok' : 'ng'}">${c.info ? '！' : c.ok ? '✓' : '✗'} ${esc(c.text)}</li>`).join('');
+  $('#result').innerHTML = `<div style="margin-top:20px" class="summary">${cards}</div>
+    <ul class="checks">${ck}</ul>
+    <div class="dl"><a class="btnlink" href="${url}" download="${esc(outName)}" id="dlLink">更新したExcelをダウンロード</a><span class="hint">${esc(outName)}</span></div>`;
+}
+render();
+</script>
+</body>
+</html>
