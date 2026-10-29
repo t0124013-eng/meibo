@@ -152,6 +152,7 @@ footer ul{padding-left:20px;margin:6px 0}
     <ul>
       <li>名簿の各シート（AM・PM・個別のみ など）と、対応する申込データ（Sheet0）を「氏名＋フリガナ」で照合します。</li>
       <li>名簿にいて申込データにいない人は「キャンセル」シートの末尾へ移し、元のシートから削除して詰めます。キャンセルシートへは見出し名が同じ列に写します。</li>
+      <li>№欄が「電話」の行（電話予約）は、申込データになくてもキャンセルにせず残し、フリガナ順・完成形のシートにも含めます。</li>
       <li>申込データにいて名簿にいない人は、申込が早い順に空欄の予約行（№のみの行）へ追加し、足りなければ末尾に№を続けて追加します。</li>
       <li>追加した人のうち、参加者マスタに同じ氏名がない人だけ「新規」欄に 1 を入れます。</li>
       <li>合計行（=SUM(B4:B…)）と右側の集計式の参照範囲を、行数の増減に合わせて直します。</li>
@@ -185,6 +186,7 @@ function val(cell){
   return v;
 }
 const plain = v => val({ value: v });
+const isPhone = v => /電話/.test(String(plain(v) ?? '').normalize('NFKC'));
 const isFormula = cell => cell.value && typeof cell.value === 'object' && ('formula' in cell.value || 'sharedFormula' in cell.value);
 const formulaOf = cell => isFormula(cell) ? (cell.formula || cell.value.formula || '') : '';
 
@@ -394,11 +396,13 @@ function syncSheet(wb, sheetName, src, master){
     const raw = [], obj = {};
     for (let c = 1; c <= N; c++){ const cell = row.getCell(c); raw.push(isFormula(cell) ? val(cell) : cell.value); if (L.keys[c-1]) obj[L.keys[c-1]] = val(cell); }
     const name = plain(raw[nameI]), kana = plain(raw[kanaI]);
-    existing.push({ key: name ? norm(name) + '|' + norm(kana) : null, raw, obj });
+    existing.push({ key: name ? norm(name) + '|' + norm(kana) : null, raw, obj, phone: isPhone(raw[0]) });
   }
   const srcByKey = new Map(src.recs.map(r => [r.key, r]));
   const exKeys = new Set(existing.filter(e => e.key).map(e => e.key));
-  const cancelled = existing.filter(e => e.key && !srcByKey.has(e.key));
+  // 電話予約（№欄が「電話」）の行は申込データになくてもキャンセルにせず残す
+  const cancelled = existing.filter(e => e.key && !e.phone && !srcByKey.has(e.key));
+  const phones = existing.filter(e => e.phone && e.key);
   const adds = src.recs.filter(r => !exKeys.has(r.key)).sort((a, b) => cmpStr(a.done, b.done));
   const makeRow = (rec, no) => {
     const shinki = master.has(norm(rec.f['氏名'])) ? null : 1;
@@ -407,7 +411,8 @@ function syncSheet(wb, sheetName, src, master){
   const final = [], added = [];
   let ai = 0;
   for (const e of existing){
-    if (e.key){ if (srcByKey.has(e.key)) final.push(e.raw); continue; }
+    if (e.phone && !e.key){ final.push(e.raw); continue; }     // 電話の行は空欄でも予約行として使わない
+    if (e.key){ if (e.phone || srcByKey.has(e.key)) final.push(e.raw); continue; }
     if (ai < adds.length){ const row = makeRow(adds[ai++], e.raw[0]); final.push(row); added.push(row); }
     else final.push(e.raw);
   }
@@ -443,7 +448,9 @@ function syncSheet(wb, sheetName, src, master){
   }
   const fr = filterRef(ws.autoFilter);
   if (fr) ws.autoFilter = fr.replace(/([A-Z]+)(\d+)$/, (m, c, n) => c + (Number(n) + delta));
-  return { sheet: sheetName, layout: L, cancelled, added, newEnd, newTotal, delta, srcCount: src.recs.length };
+  const phoneOnly = phones.filter(e => !srcByKey.has(e.key));
+  return { sheet: sheetName, layout: L, cancelled, added, newEnd, newTotal, delta, srcCount: src.recs.length,
+           phones, phoneOnly, total: src.recs.length + phoneOnly.length };
 }
 
 function appendCancels(wb, results){
@@ -618,8 +625,11 @@ function verify(wb, results, master, cancelInfo){
       if (exp !== act) mism.push({ r, n, act });
     }
     const srcKeys = new Set(res.srcKeys);
-    const same = keys.length === srcKeys.size && keys.every(k => srcKeys.has(k)) && new Set(keys).size === keys.length;
-    checks.push({ ok: same, text: `${res.sheet}：名簿の ${keys.length}名 と申込データの ${srcKeys.size}名 が${same ? '完全に一致' : '一致しません'}` });
+    const phoneOnly = new Set(res.phoneOnly.map(e => e.key));
+    const keySet = new Set(keys);
+    const same = keySet.size === keys.length && [...srcKeys].every(k => keySet.has(k)) && keys.every(k => srcKeys.has(k) || phoneOnly.has(k));
+    checks.push({ ok: same, text: `${res.sheet}：名簿の ${keys.length}名 = 申込データ ${srcKeys.size}名` + (phoneOnly.size ? ` ＋ 電話予約 ${phoneOnly.size}名` : '') + `、${same ? '完全に一致' : '一致しません'}` });
+    if (res.phones.length) checks.push({ ok: true, text: `${res.sheet}：№が「電話」の ${res.phones.length}名はキャンセルにせず残しました` + (phoneOnly.size ? `（うち申込データにない人 ${phoneOnly.size}名）` : '') });
     const addedNames = new Set(res.added.map(a => norm(plain(a[L.col('氏名')-1]))));
     const addMism = mism.filter(m => addedNames.has(norm(m.n)));
     const oldMism = mism.filter(m => !addMism.includes(m));
@@ -707,10 +717,13 @@ function autoAssign(){
     if (/PM/i.test(t) && /PM|午後/i.test(fn)) sc += 4;
     return sc;
   };
-  for (const s of srcs.filter(s => s.target === undefined)){
-    const cands = targets.filter(t => !used.has(t)).map(t => [t, score(s, t)]).sort((a, b) => b[1] - a[1]);
-    if (cands.length){ s.target = cands[0][0]; used.add(s.target); } else s.target = null;
-  }
+  // best-scoring (file, sheet) pairs first, so e.g.「個別のみAM.xlsx」goes to「個別のみAM」, not「AM」
+  const open = srcs.filter(s => s.target === undefined);
+  const pairs = [];
+  open.forEach((s, i) => targets.filter(t => !used.has(t)).forEach((t, j) => pairs.push([score(s, t), i, j, s, t])));
+  pairs.sort((a, b) => b[0] - a[0] || a[1] - b[1] || a[2] - b[2]);
+  for (const [, , , s, t] of pairs){ if (s.target === undefined && !used.has(t)){ s.target = t; used.add(t); } }
+  open.forEach(s => { if (s.target === undefined) s.target = null; });
 }
 
 const ROLE = { main:['名簿','main'], src:['申込データ','src'], master:['参加者マスタ','master'], unknown:['不明','unknown'], loading:['読込中…',''] };
@@ -806,7 +819,7 @@ function resultHtml(results, cancelInfo, checks, blob, outName, made){
     const L = r.layout;
     const newCount = r.added.filter(v => v[1] === 1).length;
     return `<div class="sheet"><h3>${esc(r.sheet)}</h3>
-      <div class="nums"><div>キャンセル<span>${r.cancelled.length}</span></div><div>追加<span>${r.added.length}</span></div><div>うち新規<span>${newCount}</span></div><div>現在<span>${r.srcCount}</span></div></div>
+      <div class="nums"><div>キャンセル<span>${r.cancelled.length}</span></div><div>追加<span>${r.added.length}</span></div><div>うち新規<span>${newCount}</span></div>${r.phones.length ? `<div>電話<span>${r.phones.length}</span></div>` : ''}<div>現在<span>${r.total}</span></div></div>
       <details><summary>キャンセルした人</summary>${personTable(r.cancelled.map(e => e.raw), L, false)}</details>
       <details><summary>追加した人</summary>${personTable(r.added, L, true)}</details>
       ${made[r.sheet].length ? `<div class="hint" style="margin-top:8px">作成：${made[r.sheet].map(esc).join('、')}${r.finalSource ? `（完成形は${esc(r.finalSource)}）` : ''}</div>` : ''}</div>`;
